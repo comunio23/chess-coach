@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>♟ Chess Coach</title>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #1a1a2e;
+      --card:       #16213e;
+      --card2:      #0f3460;
+      --accent:     #e2b96f;
+      --accent2:    #c9a847;
+      --text:       #e8e8e8;
+      --muted:      #8a9abf;
+      --border:     #2a3a5e;
+      --green:      #4caf50;
+      --red:        #ef5350;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    #header {
+      background: var(--card);
+      border-bottom: 2px solid var(--accent);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+    #header h1 { font-size: 1.35rem; color: var(--accent); font-weight: 700; white-space: nowrap; }
+    .tabs { display: flex; gap: 8px; }
+    .tab-btn {
+      padding: 7px 22px;
+      background: transparent;
+      border: 2px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      transition: all 0.18s;
+    }
+    .tab-btn:hover { border-color: var(--accent); color: var(--text); }
+    .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
+
+    /* ── PANELS ── */
+    .tab-panel { display: none; }
+
+    /* ── OPENING COACH ── */
+    #tab-coach {
+      display: none;
+      grid-template-columns: 420px 1fr;
+      gap: 20px;
+      padding: 20px 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    #tab-coach.active { display: grid; }
+
+    .board-col { display: flex; flex-direction: column; gap: 10px; }
+    #coach-board { width: 400px; }
+
+    .board-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .btn {
+      padding: 7px 14px;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.83rem;
+      transition: all 0.18s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent); color: #111; border-color: var(--accent); }
+    .btn-primary { background: var(--accent); color: #111; font-weight: 700; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent2); }
+
+    .info-col { display: flex; flex-direction: column; gap: 14px; }
+
+    /* Opening name */
+    #opening-info {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #opening-eco {
+      font-size: 0.75rem;
+      color: #111;
+      background: var(--accent);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      min-width: 36px;
+      text-align: center;
+    }
+    #opening-name { font-size: 0.95rem; color: var(--text); font-weight: 500; }
+
+    /* Move history */
+    #move-history {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      min-height: 40px;
+      max-height: 72px;
+      overflow-x: auto;
+      white-space: nowrap;
+      font-family: 'Courier New', monospace;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    /* Lichess stats */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 10px;
+    }
+
+    .stats-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .stats-table th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 400;
+      padding: 3px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .stats-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+    .stats-table tr:hover td { background: var(--card2); cursor: pointer; }
+    .move-san { font-weight: 700; font-family: monospace; }
+
+    .bar { display: flex; height: 14px; border-radius: 3px; overflow: hidden; min-width: 70px; }
+    .bar-w { background: #ddd; }
+    .bar-d { background: #777; }
+    .bar-b { background: #2a2a2a; border: 1px solid #444; }
+    .bar-pct { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+    /* Claude Chat */
+    #claude-chat { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+    #chat-messages {
+      max-height: 300px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .chat-msg {
+      padding: 9px 12px;
+      border-radius: 7px;
+      font-size: 0.87rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .chat-msg.user { background: var(--card2); border-left: 3px solid var(--accent); }
+    .chat-msg.assistant { background: #0d1a2e; border-left: 3px solid var(--green); }
+    .chat-msg.loading { color: var(--muted); font-style: italic; }
+    .chat-input-row { display: flex; gap: 8px; }
+
+    input[type="text"], select {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      outline: none;
+      transition: border 0.15s;
+    }
+    input[type="text"]:focus, select:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); }
+    #chat-input { flex: 1; }
+
+    /* ── SCOUTING ── */
+    #tab-scouting {
+      display: none;
+      flex-direction: column;
+      gap: 18px;
+      padding: 20px 24px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    #tab-scouting.active { display: flex; }
+
+    .scout-form {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      flex-wrap: wrap;
+    }
+    #opponent-username { flex: 1; min-width: 180px; font-size: 0.92rem; }
+
+    .loading-box {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .spinner {
+      display: inline-block;
+      width: 22px; height: 22px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      vertical-align: middle;
+      margin-right: 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .color-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .ctab {
+      padding: 7px 18px;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.86rem;
+      transition: all 0.18s;
+    }
+    .ctab.active { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
+
+    .rep-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .rep-table th {
+      text-align: left;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-weight: 400;
+      border-bottom: 2px solid var(--border);
+    }
+    .rep-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .rep-table tr:hover td { background: var(--card2); }
+    .score-w { color: var(--green); font-weight: 600; }
+    .score-l { color: var(--red); }
+
+    .score-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; min-width: 80px; }
+    .sb-w { background: var(--green); }
+    .sb-d { background: #666; }
+    .sb-l { background: var(--red); }
+
+    .report-txt {
+      white-space: pre-wrap;
+      font-size: 0.88rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .practice-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* Practice board */
+    #practice-area {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    #practice-board { width: 400px; }
+    #practice-sidebar {
+      background: var(--card2);
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 0.88rem;
+    }
+    #practice-status { font-size: 1rem; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+    #practice-moves {
+      font-family: monospace;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 8px;
+      min-height: 20px;
+      line-height: 1.9;
+    }
+    #practice-coverage { margin-top: 12px; font-size: 0.78rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>♟ Chess Coach</h1>
+  <div class="tabs">
+    <button class="tab-btn" id="btn-coach" onclick="switchTab('coach')">Opening Coach</button>
+    <button class="tab-btn" id="btn-scouting" onclick="switchTab('scouting')">Gegner-Scouting</button>
+  </div>
+</div>
+
+<!-- ══════════ TAB 1: OPENING COACH ══════════ -->
+<div id="tab-coach" class="tab-panel">
+  <div class="board-col">
+    <div id="coach-board"></div>
+    <div class="board-controls">
+      <button class="btn" onclick="undoMove()">← Zurück</button>
+      <button class="btn" onclick="flipCoachBoard()">⟳ Drehen</button>
+      <button class="btn" onclick="resetCoachBoard()">✕ Reset</button>
+    </div>
+  </div>
+
+  <div class="info-col">
+    <div id="opening-info">
+      <span id="opening-eco"></span>
+      <span id="opening-name">Grundstellung</span>
+    </div>
+
+    <div id="move-history">—</div>
+
+    <div class="card" id="explorer-card">
+      <div class="card-title">Lichess Explorer</div>
+      <div id="stats-content" style="color:var(--muted);font-size:0.83rem">Ziehe einen Stein um Statistiken zu sehen.</div>
+    </div>
+
+    <div class="card" id="claude-chat">
+      <div class="card-title">Coach (Claude Opus)</div>
+      <div id="chat-messages"></div>
+      <div class="chat-input-row" style="margin-top:10px">
+        <input type="text" id="chat-input" placeholder="Frage zur aktuellen Position..." onkeydown="if(event.key==='Enter') sendChat()">
+        <button class="btn btn-primary" onclick="sendChat()">Senden</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TAB 2: GEGNER-SCOUTING ══════════ -->
+<div id="tab-scouting" class="tab-panel">
+  <div class="scout-form">
+    <input type="text" id="opponent-username" placeholder="Lichess Username (z.B. Magnus, Hikaru, DrNykterstein)"
+           onkeydown="if(event.key==='Enter') loadOpponent()">
+    <select id="game-count">
+      <option value="50">50 Partien</option>
+      <option value="100" selected>100 Partien</option>
+      <option value="200">200 Partien</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadOpponent()">🔍 Scouten</button>
+  </div>
+
+  <div id="scouting-loading" style="display:none" class="loading-box">
+    <span class="spinner"></span>Lade Partien von Lichess…
+  </div>
+
+  <div id="scouting-results" style="display:none; flex-direction:column; gap:18px">
+
+    <div class="card">
+      <div class="color-tabs">
+        <button class="ctab" id="ctab-white" onclick="showColorStats('white')">♙ Als Weiß</button>
+        <button class="ctab" id="ctab-black" onclick="showColorStats('black')">♟ Als Schwarz</button>
+      </div>
+      <div id="stats-table-container"></div>
+    </div>
+
+    <div class="card" id="report-card" style="display:none">
+      <div class="card-title">Scouting Report (Claude Opus)</div>
+      <div class="report-txt" id="report-content">…</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Aktionen</div>
+      <div class="practice-btns">
+        <button class="btn btn-primary" onclick="generateScoutingReport()">📊 Scouting Report erstellen</button>
+        <button class="btn btn-primary" onclick="startPractice('white')">♙ Gegen Weiß-Repertoire üben</button>
+        <button class="btn btn-primary" onclick="startPractice('black')">♟ Gegen Schwarz-Repertoire üben</button>
+      </div>
+    </div>
+
+    <div id="practice-area" style="display:none">
+      <div>
+        <div id="practice-board"></div>
+        <div class="board-controls" style="margin-top:10px">
+          <button class="btn" onclick="resetPractice()">✕ Neue Partie</button>
+          <button class="btn" onclick="stopPractice()">← Zurück</button>
+        </div>
+      </div>
+      <div id="practice-sidebar">
+        <div id="practice-status">Bereit</div>
+        <div style="color:var(--muted);font-size:0.78rem;margin-bottom:6px">Zugfolge:</div>
+        <div id="practice-moves">—</div>
+        <div id="practice-coverage"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════
+const S = {
+  chess: new Chess(),
+  board: null,
+  chatHistory: [],
+  explorerTimer: null,
+
+  opponentUsername: '',
+  opponentStats: { white: {}, black: {} },
+  moveSeqs: { white: [], black: [] },
+  gameCount: { white: 0, black: 0 },
+  activeColor: 'white',
+
+  practiceChess: null,
+  practiceBoard: null,
+  practiceColor: null,
+  practiceMoves: []
+};
+
+// ════════════════════════════════════════════════
+//  TABS
+// ════════════════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('btn-' + tab).classList.add('active');
+}
+
+// ════════════════════════════════════════════════
+//  OPENING COACH — BOARD
+// ════════════════════════════════════════════════
+function initCoachBoard() {
+  S.board = Chessboard('coach-board', {
+    draggable: true,
+    position: 'start',
+    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+    onDragStart: () => !S.chess.game_over(),
+    onDrop: onCoachDrop,
+    onSnapEnd: () => S.board.position(S.chess.fen())
+  });
+  fetchExplorer();
+}
+
+function onCoachDrop(source, target) {
+  const move = S.chess.move({ from: source, to: target, promotion: 'q' });
+  if (!move) return 'snapback';
+  updateMoveHistory();
+  fetchExplorer();
+}
+
+function undoMove() {
+  S.chess.undo();
+  S.board.position(S.chess.fen());
+  updateMoveHistory();
+  fetchExplorer();
+}
+
+function flipCoachBoard() { S.board.flip(); }
+
+function resetCoachBoard() {
+  S.chess.reset();
+  S.board.position('start');
+  updateMoveHistory();
+  document.getElementById('opening-eco').textContent = '';
+  document.getElementById('opening-name').textContent = 'Grundstellung';
+  document.getElementById('stats-content').innerHTML =
+    '<span style="color:var(--muted)">Ziehe einen Stein um Statistiken zu sehen.</span>';
+  fetchExplorer();
+}
+
+function updateMoveHistory() {
+  const hist = S.chess.history();
+  if (!hist.length) { document.getElementById('move-history').textContent = '—'; return; }
+  let html = '';
+  hist.forEach((m, i) => {
+    if (i % 2 === 0) html += `<span style="color:var(--muted)">${i/2 + 1}. </span>`;
+    html += `<span style="margin-right:6px">${m}</span>`;
+  });
+  document.getElementById('move-history').innerHTML = html;
+}
+
+// ════════════════════════════════════════════════
+//  LICHESS EXPLORER
+// ════════════════════════════════════════════════
+function fetchExplorer() {
+  clearTimeout(S.explorerTimer);
+  S.explorerTimer = setTimeout(async () => {
+    const fen = S.chess.fen();
+    try {
+      const url = `https://explorer.lichess.ovh/lichess?variant=standard&speeds[]=blitz&speeds[]=rapid&speeds[]=classical&ratings[]=1600&ratings[]=1800&ratings[]=2000&ratings[]=2200&fen=${encodeURIComponent(fen)}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.opening) {
+        document.getElementById('opening-eco').textContent = data.opening.eco || '';
+        document.getElementById('opening-name').textContent = data.opening.name || 'Unbekannte Eröffnung';
+      }
+      renderExplorer(data);
+    } catch { /* Lichess nicht erreichbar */ }
+  }, 380);
+}
+
+function renderExplorer(data) {
+  const el = document.getElementById('stats-content');
+  const moves = (data.moves || []).slice(0, 7);
+  if (!moves.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:0.83rem">Keine Explorer-Daten für diese Position.</span>';
+    return;
+  }
+  const total = (data.white || 0) + (data.draws || 0) + (data.black || 0);
+  let html = `<table class="stats-table"><thead><tr>
+    <th>Zug</th><th>Partien</th><th>Ergebnis (W/R/S)</th><th>Ø Elo</th>
+  </tr></thead><tbody>`;
+
+  moves.forEach(m => {
+    const n = (m.white || 0) + (m.draws || 0) + (m.black || 0);
+    if (!n) return;
+    const wp = Math.round(m.white / n * 100);
+    const dp = Math.round(m.draws / n * 100);
+    const bp = 100 - wp - dp;
+    html += `<tr onclick="explorerMove('${m.san}')" title="Zug spielen: ${m.san}">
+      <td class="move-san">${m.san}</td>
+      <td>${fmt(n)}</td>
+      <td>
+        <div class="bar" title="Weiß ${wp}% · Remis ${dp}% · Schwarz ${bp}%">
+          <div class="bar-w" style="width:${wp}%"></div>
+          <div class="bar-d" style="width:${dp}%"></div>
+          <div class="bar-b" style="width:${bp}%"></div>
+        </div>
+        <div class="bar-pct">${wp}% / ${dp}% / ${bp}%</div>
+      </td>
+      <td style="color:var(--muted)">${m.averageRating || '—'}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  if (total) {
+    const wt = Math.round(data.white / total * 100);
+    const dt = Math.round(data.draws / total * 100);
+    html += `<div style="margin-top:8px;font-size:0.73rem;color:var(--muted)">
+      Gesamt: ${fmt(total)} Partien — Weiß ${wt}% · Remis ${dt}%
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function explorerMove(san) {
+  const move = S.chess.move(san);
+  if (move) {
+    S.board.position(S.chess.fen());
+    updateMoveHistory();
+    fetchExplorer();
+  }
+}
+
+function fmt(n) {
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+
+// ════════════════════════════════════════════════
+//  CLAUDE CHAT
+// ════════════════════════════════════════════════
+async function sendChat() {
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+
+  addMsg('user', text);
+  const loadEl = addMsg('assistant', '…', true);
+
+  const fen = S.chess.fen();
+  const hist = S.chess.history();
+  const system = `Du bist ein Schach-Eröffnungscoach auf Großmeister-Niveau. Du analysierst Schachpositionen präzise und erklärst Eröffnungspläne, strategische Ideen und typische Varianten klar auf Deutsch. Halte dich kurz und präzise.
+
+Aktuelle Stellung:
+- FEN: ${fen}
+- Züge: ${hist.join(' ') || '(Grundstellung)'}
+- Am Zug: ${S.chess.turn() === 'w' ? 'Weiß' : 'Schwarz'}`;
+
+  S.chatHistory.push({ role: 'user', content: text });
+
+  try {
+    const r = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system, messages: S.chatHistory, max_tokens: 1200 })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    loadEl.remove();
+    addMsg('assistant', d.text);
+    S.chatHistory.push({ role: 'assistant', content: d.text });
+    if (S.chatHistory.length > 20) S.chatHistory = S.chatHistory.slice(-16);
+  } catch (e) {
+    loadEl.remove();
+    addMsg('assistant', `Fehler: ${e.message}`);
+    S.chatHistory.pop();
+  }
+}
+
+function addMsg(role, text, loading = false) {
+  const el = document.createElement('div');
+  el.className = `chat-msg ${role}${loading ? ' loading' : ''}`;
+  el.textContent = text;
+  const msgs = document.getElementById('chat-messages');
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+
+// ════════════════════════════════════════════════
+//  GEGNER-SCOUTING — LADEN
+// ════════════════════════════════════════════════
+async function loadOpponent() {
+  const username = document.getElementById('opponent-username').value.trim();
+  if (!username) { alert('Bitte einen Lichess-Benutzernamen eingeben.'); return; }
+  const count = parseInt(document.getElementById('game-count').value);
+
+  document.getElementById('scouting-loading').style.display = 'block';
+  document.getElementById('scouting-results').style.display = 'none';
+  document.getElementById('practice-area').style.display = 'none';
+  document.getElementById('report-card').style.display = 'none';
+
+  try {
+    const url = `https://lichess.org/api/user/${encodeURIComponent(username)}/games?max=${count}&opening=true&clocks=false&evals=false&variant=standard`;
+    const res = await fetch(url, { headers: { Accept: 'application/x-ndjson' } });
+    if (res.status === 404) throw new Error(`Benutzer "${username}" nicht gefunden.`);
+    if (!res.ok) throw new Error(`Lichess API Fehler: ${res.status}`);
+
+    const text = await res.text();
+    const games = text.trim().split('\n')
+      .filter(l => l.trim())
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(g => g && g.players);
+
+    if (!games.length) throw new Error('Keine Partien gefunden.');
+    S.opponentUsername = username;
+    analyzeGames(username, games);
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    document.getElementById('scouting-loading').style.display = 'none';
+  }
+}
+
+// ════════════════════════════════════════════════
+//  GEGNER-SCOUTING — ANALYSE
+// ════════════════════════════════════════════════
+function analyzeGames(username, games) {
+  const stats = { white: {}, black: {} };
+  const seqs  = { white: [], black: [] };
+  let cntW = 0, cntB = 0;
+  const uLow = username.toLowerCase();
+
+  games.forEach(g => {
+    const wId = (g.players?.white?.user?.id || g.players?.white?.user?.name || '').toLowerCase();
+    const color = wId === uLow ? 'white' : 'black';
+    if (color === 'white') cntW++; else cntB++;
+
+    const eco = g.opening?.name || 'Unbekannt';
+    if (!stats[color][eco]) stats[color][eco] = { w: 0, d: 0, l: 0, n: 0 };
+    stats[color][eco].n++;
+    if (g.winner === color) stats[color][eco].w++;
+    else if (!g.winner) stats[color][eco].d++;
+    else stats[color][eco].l++;
+
+    if (g.moves) {
+      const mv = parseMoves(g.moves);
+      if (mv.length >= 4) seqs[color].push(mv);
+    }
+  });
+
+  S.opponentStats = stats;
+  S.moveSeqs = seqs;
+  S.gameCount = { white: cntW, black: cntB };
+
+  const results = document.getElementById('scouting-results');
+  results.style.display = 'flex';
+  showColorStats('white');
+}
+
+function parseMoves(str) {
+  if (!str || typeof str !== 'string') return [];
+  return str.trim().split(/\s+/).filter(m => m && !/^\d+\.+$/.test(m) && m.length >= 2 && m.length <= 8);
+}
+
+// ════════════════════════════════════════════════
+//  GEGNER-SCOUTING — STATS ANZEIGEN
+// ════════════════════════════════════════════════
+function showColorStats(color) {
+  S.activeColor = color;
+  document.getElementById('ctab-white').classList.toggle('active', color === 'white');
+  document.getElementById('ctab-black').classList.toggle('active', color === 'black');
+
+  const stats = S.opponentStats[color];
+  const sorted = Object.entries(stats).sort((a, b) => b[1].n - a[1].n).slice(0, 12);
+  const container = document.getElementById('stats-table-container');
+
+  if (!sorted.length) {
+    container.innerHTML = `<p style="color:var(--muted)">Keine Partien als ${color === 'white' ? 'Weiß' : 'Schwarz'} gefunden.</p>`;
+    return;
+  }
+
+  const colorLabel = color === 'white' ? 'Weiß ♙' : 'Schwarz ♟';
+  let html = `<p style="font-size:0.8rem;color:var(--muted);margin-bottom:10px">
+    ${S.opponentUsername} spielte ${S.gameCount[color]} Partien als ${colorLabel}
+  </p>
+  <table class="rep-table">
+    <thead><tr>
+      <th>Eröffnung</th><th>Partien</th>
+      <th class="score-w">Siege</th><th style="color:var(--muted)">Remis</th><th class="score-l">Nied.</th>
+      <th>Score</th><th>Verlauf</th>
+    </tr></thead><tbody>`;
+
+  sorted.forEach(([name, s]) => {
+    const score = ((s.w + s.d * 0.5) / s.n * 100).toFixed(0);
+    const wp = Math.round(s.w / s.n * 100);
+    const dp = Math.round(s.d / s.n * 100);
+    const lp = 100 - wp - dp;
+    const short = name.length > 38 ? name.slice(0, 36) + '…' : name;
+    html += `<tr>
+      <td title="${name}">${short}</td>
+      <td>${s.n}</td>
+      <td class="score-w">${s.w}</td>
+      <td style="color:var(--muted)">${s.d}</td>
+      <td class="score-l">${s.l}</td>
+      <td><strong>${score}%</strong></td>
+      <td>
+        <div class="score-bar" title="Siege ${wp}% · Remis ${dp}% · Nied. ${lp}%">
+          <div class="sb-w" style="width:${wp}%"></div>
+          <div class="sb-d" style="width:${dp}%"></div>
+          <div class="sb-l" style="width:${lp}%"></div>
+        </div>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+// ════════════════════════════════════════════════
+//  SCOUTING REPORT (CLAUDE)
+// ════════════════════════════════════════════════
+async function generateScoutingReport() {
+  const card = document.getElementById('report-card');
+  const content = document.getElementById('report-content');
+  card.style.display = 'block';
+  content.textContent = 'Erstelle Scouting Report…';
+  card.scrollIntoView({ behavior: 'smooth' });
+
+  const fmtColor = (color) =>
+    Object.entries(S.opponentStats[color])
+      .sort((a, b) => b[1].n - a[1].n).slice(0, 7)
+      .map(([name, s]) => {
+        const score = ((s.w + s.d * 0.5) / s.n * 100).toFixed(0);
+        return `  • ${name}: ${s.n} Partien, Score ${score}% (${s.w}S/${s.d}R/${s.l}N)`;
+      }).join('\n') || '  (keine Daten)';
+
+  const prompt = `Analysiere das Schach-Repertoire von "${S.opponentUsername}" und erstelle einen präzisen Vorbereitungsbericht auf Deutsch.
+
+STATISTIKEN — Basis: ${S.gameCount.white + S.gameCount.black} Partien
+
+Als Weiß (${S.gameCount.white} Partien, häufigste Eröffnungen):
+${fmtColor('white')}
+
+Als Schwarz (${S.gameCount.black} Partien, häufigste Eröffnungen):
+${fmtColor('black')}
+
+Strukturiere den Report:
+1. Spielerstil & Präferenzen
+2. Schwachstellen (niedrigste Scores, seltene Eröffnungen)
+3. Vorbereitungsempfehlungen (konkrete Eröffnungen dagegen)
+4. Schlüsselideen im Training
+
+Sei konkret, umsetzbar und kurz.`;
+
+  try {
+    const r = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], max_tokens: 1500 })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    content.textContent = d.text;
+  } catch (e) {
+    content.textContent = `Fehler: ${e.message}`;
+  }
+}
+
+// ════════════════════════════════════════════════
+//  PRACTICE MODE
+// ════════════════════════════════════════════════
+function startPractice(opponentColor) {
+  S.practiceColor = opponentColor;
+  S.practiceMoves = [];
+  S.practiceChess = new Chess();
+
+  const area = document.getElementById('practice-area');
+  area.style.display = 'grid';
+  area.scrollIntoView({ behavior: 'smooth' });
+
+  const orientation = opponentColor === 'white' ? 'black' : 'white';
+
+  if (S.practiceBoard) {
+    $('#practice-board').empty();
+    S.practiceBoard = null;
+  }
+
+  S.practiceBoard = Chessboard('practice-board', {
+    draggable: true,
+    position: 'start',
+    orientation,
+    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+    onDragStart: practiceDragStart,
+    onDrop: practiceDrop,
+    onSnapEnd: () => S.practiceBoard.position(S.practiceChess.fen())
+  });
+
+  updatePracticeInfo('Dein Gegner wird gleich seinen ersten Zug machen…');
+
+  if (opponentColor === 'white') {
+    setTimeout(playOpponentMove, 750);
+  } else {
+    updatePracticeInfo('Du bist am Zug (Weiß). Mache deinen ersten Zug.');
+  }
+}
+
+function practiceDragStart(source, piece) {
+  if (!S.practiceChess || S.practiceChess.game_over()) return false;
+  const myColor = S.practiceColor === 'white' ? 'b' : 'w';
+  if (S.practiceChess.turn() !== myColor) return false;
+  if (piece[0] !== myColor) return false;
+  return true;
+}
+
+function practiceDrop(source, target) {
+  const move = S.practiceChess.move({ from: source, to: target, promotion: 'q' });
+  if (!move) return 'snapback';
+
+  S.practiceMoves.push(move.san);
+  updatePracticeInfo();
+
+  if (!S.practiceChess.game_over()) {
+    updatePracticeInfo(`${S.opponentUsername} denkt…`);
+    setTimeout(playOpponentMove, 600);
+  } else {
+    showGameOver();
+  }
+}
+
+function playOpponentMove() {
+  if (!S.practiceChess || S.practiceChess.game_over()) return;
+
+  const response = getOpponentResponse(S.practiceMoves, S.practiceColor);
+  if (!response) {
+    updatePracticeInfo('Keine Daten mehr — Gegner hat in dieser Stellung keine Partien gespielt.');
+    document.getElementById('practice-coverage').textContent =
+      `Basis: ${countMatching(S.practiceMoves, S.practiceColor)} Partien für diese Zugfolge.`;
+    return;
+  }
+
+  const move = applyMove(S.practiceChess, response);
+  if (move) {
+    S.practiceMoves.push(move.san);
+    S.practiceBoard.position(S.practiceChess.fen());
+    if (S.practiceChess.game_over()) {
+      showGameOver();
+    } else {
+      const myColorLabel = S.practiceColor === 'white' ? 'Schwarz' : 'Weiß';
+      updatePracticeInfo(`Du bist am Zug (${myColorLabel}).`);
+    }
+  }
+}
+
+function getOpponentResponse(currentMoves, opponentColor) {
+  const seqs = S.moveSeqs[opponentColor];
+  const matching = seqs.filter(seq =>
+    seq.length > currentMoves.length &&
+    currentMoves.every((m, i) => seq[i] === m)
+  );
+  if (!matching.length) return null;
+
+  const freq = {};
+  matching.forEach(seq => {
+    const m = seq[currentMoves.length];
+    if (m) freq[m] = (freq[m] || 0) + 1;
+  });
+
+  const entries = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+  return entries.length ? entries[0][0] : null;
+}
+
+function countMatching(currentMoves, opponentColor) {
+  return S.moveSeqs[opponentColor].filter(seq =>
+    currentMoves.every((m, i) => seq[i] === m)
+  ).length;
+}
+
+function applyMove(chess, moveStr) {
+  let move = chess.move(moveStr);
+  if (move) return move;
+  if (/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(moveStr)) {
+    move = chess.move({
+      from: moveStr.slice(0, 2),
+      to: moveStr.slice(2, 4),
+      promotion: moveStr[4] || 'q'
+    });
+  }
+  return move;
+}
+
+function updatePracticeInfo(statusOverride) {
+  if (statusOverride) {
+    document.getElementById('practice-status').textContent = statusOverride;
+  } else if (S.practiceChess) {
+    const opponentIsWhite = S.practiceColor === 'white';
+    const myLabel = opponentIsWhite ? 'Schwarz' : 'Weiß';
+    const turn = S.practiceChess.turn();
+    const isMyTurn = (opponentIsWhite && turn === 'b') || (!opponentIsWhite && turn === 'w');
+    document.getElementById('practice-status').textContent =
+      isMyTurn ? `Du bist am Zug (${myLabel}).` : `${S.opponentUsername} denkt…`;
+  }
+
+  const moves = S.practiceMoves;
+  const opponentIsWhite = S.practiceColor === 'white';
+  let html = '';
+  moves.forEach((m, i) => {
+    if (i % 2 === 0) html += `<span style="color:var(--muted)">${Math.floor(i/2)+1}. </span>`;
+    const isOpp = (opponentIsWhite && i % 2 === 0) || (!opponentIsWhite && i % 2 === 1);
+    html += `<span style="color:${isOpp ? 'var(--accent)' : 'var(--text)'};margin-right:6px">${m}</span>`;
+  });
+  document.getElementById('practice-moves').innerHTML = html || '—';
+
+  const cnt = countMatching(moves, S.practiceColor);
+  document.getElementById('practice-coverage').textContent =
+    cnt > 0 ? `📊 ${cnt} Partien für diese Zugfolge in der Datenbank` : '';
+}
+
+function showGameOver() {
+  let msg;
+  if (S.practiceChess.in_checkmate()) {
+    const winner = S.practiceChess.turn() === 'w' ? 'Schwarz' : 'Weiß';
+    msg = `Matt! ${winner} gewinnt.`;
+  } else {
+    msg = 'Partie beendet (Remis).';
+  }
+  document.getElementById('practice-status').textContent = msg;
+}
+
+function resetPractice() {
+  if (S.practiceColor) startPractice(S.practiceColor);
+}
+
+function stopPractice() {
+  document.getElementById('practice-area').style.display = 'none';
+}
+
+// ════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  switchTab('coach');
+  initCoachBoard();
+});
+</script>
+</body>
+</html>
