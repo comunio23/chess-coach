@@ -414,6 +414,34 @@
 
 <script>
 // ════════════════════════════════════════════════
+//  PIECE THEME — Canvas-rendered Unicode symbols
+// ════════════════════════════════════════════════
+const PIECE_CACHE = {};
+function pieceTheme(piece) {
+  if (PIECE_CACHE[piece]) return PIECE_CACHE[piece];
+  const syms = {
+    wK:'♔', wQ:'♕', wR:'♖', wB:'♗', wN:'♘', wP:'♙',
+    bK:'♚', bQ:'♛', bR:'♜', bB:'♝', bN:'♞', bP:'♟'
+  };
+  const isWhite = piece[0] === 'w';
+  const sz = 72;
+  const c = document.createElement('canvas');
+  c.width = sz; c.height = sz;
+  const ctx = c.getContext('2d');
+  ctx.font = `${sz - 10}px "Segoe UI Symbol", "Apple Color Emoji", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Outline for contrast on any square color
+  ctx.strokeStyle = isWhite ? '#2a2a2a' : '#e0e0e0';
+  ctx.lineWidth = 4;
+  ctx.strokeText(syms[piece], sz / 2, sz / 2 + 2);
+  ctx.fillStyle = isWhite ? '#f0f0f0' : '#1a1a1a';
+  ctx.fillText(syms[piece], sz / 2, sz / 2 + 2);
+  PIECE_CACHE[piece] = c.toDataURL();
+  return PIECE_CACHE[piece];
+}
+
+// ════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════
 const S = {
@@ -451,7 +479,7 @@ function initCoachBoard() {
   S.board = Chessboard('coach-board', {
     draggable: true,
     position: 'start',
-    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+    pieceTheme: pieceTheme,
     onDragStart: () => !S.chess.game_over(),
     onDrop: onCoachDrop,
     onSnapEnd: () => S.board.position(S.chess.fen())
@@ -589,12 +617,26 @@ async function sendChat() {
 
   const fen = S.chess.fen();
   const hist = S.chess.history();
-  const system = `Du bist ein Schach-Eröffnungscoach auf Großmeister-Niveau. Du analysierst Schachpositionen präzise und erklärst Eröffnungspläne, strategische Ideen und typische Varianten klar auf Deutsch. Halte dich kurz und präzise.
+  const legalMoves = S.chess.moves().join(', ');
+  const inCheck = S.chess.in_check();
+  const gameOver = S.chess.game_over();
 
-Aktuelle Stellung:
-- FEN: ${fen}
-- Züge: ${hist.join(' ') || '(Grundstellung)'}
-- Am Zug: ${S.chess.turn() === 'w' ? 'Weiß' : 'Schwarz'}`;
+  const system = `Du bist ein Schach-Großmeister und Eröffnungscoach. Du gibst AUSSCHLIESSLICH schachlich korrekte Analysen. Überprüfe jeden Zug auf Legalität bevor du ihn nennst. Wenn du dir bei einem konkreten Zug nicht 100% sicher bist, sage es explizit.
+
+AKTUELLE BRETT-STELLUNG:
+${S.chess.ascii()}
+
+FEN: ${fen}
+Gespielte Züge: ${hist.length ? hist.join(' ') : '(Grundstellung)'}
+Am Zug: ${S.chess.turn() === 'w' ? 'Weiß' : 'Schwarz'}${inCheck ? '\n⚠️ König steht im SCHACH' : ''}${gameOver ? '\n🏁 Partie ist beendet' : ''}
+
+Alle legalen Züge in dieser Stellung: ${legalMoves}
+
+Regeln für deine Antwort:
+- Nenne NUR Züge aus der obigen Liste der legalen Züge
+- Beziehe dich ausschließlich auf die gezeigte Stellung
+- Antworte auf Deutsch, klar und präzise
+- Bei Eröffnungsfragen: erkläre den Plan hinter dem Zug, nicht nur den Zug selbst`;
 
   S.chatHistory.push({ role: 'user', content: text });
 
@@ -602,12 +644,13 @@ Aktuelle Stellung:
     const r = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system, messages: S.chatHistory, max_tokens: 1200 })
+      body: JSON.stringify({ system, messages: S.chatHistory, max_tokens: 2000 })
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     loadEl.remove();
-    addMsg('assistant', d.text);
+    const respEl = addMsg('assistant', d.text);
+    respEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     S.chatHistory.push({ role: 'assistant', content: d.text });
     if (S.chatHistory.length > 20) S.chatHistory = S.chatHistory.slice(-16);
   } catch (e) {
@@ -635,30 +678,46 @@ async function loadOpponent() {
   if (!username) { alert('Bitte einen Lichess-Benutzernamen eingeben.'); return; }
   const count = parseInt(document.getElementById('game-count').value);
 
-  document.getElementById('scouting-loading').style.display = 'block';
+  const loadingEl = document.getElementById('scouting-loading');
+  const setStatus = msg => { loadingEl.querySelector('span.spinner').insertAdjacentText('afterend', msg); };
+
+  loadingEl.style.display = 'block';
+  loadingEl.innerHTML = '<span class="spinner"></span>Prüfe Spieler…';
   document.getElementById('scouting-results').style.display = 'none';
   document.getElementById('practice-area').style.display = 'none';
   document.getElementById('report-card').style.display = 'none';
 
   try {
-    const url = `https://lichess.org/api/user/${encodeURIComponent(username)}/games?max=${count}&opening=true&clocks=false&evals=false&variant=standard`;
-    const res = await fetch(url, { headers: { Accept: 'application/x-ndjson' } });
-    if (res.status === 404) throw new Error(`Benutzer "${username}" nicht gefunden.`);
-    if (!res.ok) throw new Error(`Lichess API Fehler: ${res.status}`);
+    // 1. Spieler-Existenz prüfen
+    const userRes = await fetch(`/api/lichess/user/${encodeURIComponent(username)}`);
+    const userData = await userRes.json();
+    if (!userRes.ok) throw new Error(userData.error || `Spieler "${username}" nicht gefunden.`);
 
-    const text = await res.text();
-    const games = text.trim().split('\n')
-      .filter(l => l.trim())
+    const displayName = userData.username;
+    loadingEl.innerHTML = `<span class="spinner"></span>Lade ${userData.nbGames.toLocaleString()} Partien von <strong>${displayName}</strong>…`;
+
+    // 2. Partien laden
+    const gamesRes = await fetch(`/api/lichess/games/${encodeURIComponent(displayName)}?max=${count}`);
+    if (!gamesRes.ok) {
+      const err = await gamesRes.json().catch(() => ({}));
+      throw new Error(err.error || `Fehler beim Laden der Partien.`);
+    }
+
+    const text = await gamesRes.text();
+    const lines = text.trim().split('\n').filter(l => l.trim());
+    const games = lines
       .map(l => { try { return JSON.parse(l); } catch { return null; } })
-      .filter(g => g && g.players);
+      .filter(g => g && g.players && g.variant === 'standard');
 
-    if (!games.length) throw new Error('Keine Partien gefunden.');
-    S.opponentUsername = username;
-    analyzeGames(username, games);
+    if (!games.length) throw new Error(`Keine Standard-Schachpartien für "${displayName}" gefunden.`);
+
+    S.opponentUsername = displayName;
+    analyzeGames(displayName, games);
   } catch (e) {
     alert(e.message);
   } finally {
-    document.getElementById('scouting-loading').style.display = 'none';
+    loadingEl.style.display = 'none';
+    loadingEl.innerHTML = '<span class="spinner"></span>Lade Partien…';
   }
 }
 
@@ -700,7 +759,24 @@ function analyzeGames(username, games) {
 
 function parseMoves(str) {
   if (!str || typeof str !== 'string') return [];
-  return str.trim().split(/\s+/).filter(m => m && !/^\d+\.+$/.test(m) && m.length >= 2 && m.length <= 8);
+  const parts = str.trim().split(/\s+/).filter(m => m && !/^\d+\.+$/.test(m) && m.length >= 2);
+  if (!parts.length) return [];
+
+  // Detect UCI format (e2e4, g1f3, e7e8q) vs SAN (e4, Nf3, O-O)
+  const uciRx = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+  const looksUCI = parts.slice(0, Math.min(6, parts.length)).filter(m => uciRx.test(m)).length >= 3;
+
+  if (looksUCI) {
+    const tmp = new Chess();
+    const san = [];
+    for (const uci of parts) {
+      const mv = tmp.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || undefined });
+      if (mv) san.push(mv.san); else break;
+    }
+    return san;
+  }
+
+  return parts.filter(m => m.length <= 8);
 }
 
 // ════════════════════════════════════════════════
@@ -831,7 +907,7 @@ function startPractice(opponentColor) {
     draggable: true,
     position: 'start',
     orientation,
-    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+    pieceTheme: pieceTheme,
     onDragStart: practiceDragStart,
     onDrop: practiceDrop,
     onSnapEnd: () => S.practiceBoard.position(S.practiceChess.fen())
