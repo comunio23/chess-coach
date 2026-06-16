@@ -533,8 +533,16 @@ function fetchExplorer() {
   S.explorerTimer = setTimeout(async () => {
     const fen = S.chess.fen();
     try {
-      const url = `https://explorer.lichess.ovh/lichess?variant=standard&speeds[]=blitz&speeds[]=rapid&speeds[]=classical&ratings[]=1600&ratings[]=1800&ratings[]=2000&ratings[]=2200&fen=${encodeURIComponent(fen)}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/explorer?fen=${encodeURIComponent(fen)}`);
+      if (res.status === 401) {
+        document.getElementById('stats-content').innerHTML =
+          `<div style="color:var(--accent);font-size:0.82rem">
+            <strong>Lichess API Token erforderlich.</strong><br>
+            Erstelle einen kostenlosen Token auf <a href="https://lichess.org/account/oauth/token" target="_blank" style="color:var(--accent)">lichess.org/account/oauth/token</a>
+            und trage ihn als Umgebungsvariable <code style="background:var(--card2);padding:2px 6px;border-radius:3px">LICHESS_TOKEN</code> ein.
+          </div>`;
+        return;
+      }
       if (!res.ok) return;
       const data = await res.json();
       if (data.opening) {
@@ -542,7 +550,7 @@ function fetchExplorer() {
         document.getElementById('opening-name').textContent = data.opening.name || 'Unbekannte Eröffnung';
       }
       renderExplorer(data);
-    } catch { /* Lichess nicht erreichbar */ }
+    } catch { /* Server nicht erreichbar */ }
   }, 380);
 }
 

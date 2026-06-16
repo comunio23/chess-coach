@@ -30,6 +30,36 @@ app.post('/api/claude', async (req, res) => {
   }
 });
 
+// ── Lichess Opening Explorer Proxy ───────────────────────────────────
+app.get('/api/explorer', async (req, res) => {
+  const token = process.env.LICHESS_TOKEN;
+  const fen = req.query.fen;
+  if (!fen) return res.status(400).json({ error: 'FEN fehlt' });
+
+  const params = new URLSearchParams({
+    variant: 'standard',
+    fen,
+    'speeds[]': ['blitz', 'rapid', 'classical'],
+    'ratings[]': ['1600', '1800', '2000', '2200'],
+  });
+  // speeds[] / ratings[] als repeated params
+  const url = `https://explorer.lichess.ovh/lichess?variant=standard` +
+    `&speeds[]=blitz&speeds[]=rapid&speeds[]=classical` +
+    `&ratings[]=1600&ratings[]=1800&ratings[]=2000&ratings[]=2200` +
+    `&fen=${encodeURIComponent(fen)}`;
+
+  try {
+    const headers = { 'Accept': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const r = await fetch(url, { headers });
+    if (r.status === 401) return res.status(401).json({ error: 'LICHESS_TOKEN fehlt oder ungültig' });
+    if (!r.ok) return res.status(r.status).json({ error: `Explorer Fehler ${r.status}` });
+    res.json(await r.json());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Lichess User-Existenz prüfen ──────────────────────────────────────
 app.get('/api/lichess/user/:username', async (req, res) => {
   try {
