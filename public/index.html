@@ -164,6 +164,49 @@
     .bar-b { background: #2a2a2a; border: 1px solid #444; }
     .bar-pct { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
 
+    /* ── ENGINE ── */
+    #engine-card { padding: 12px 14px; }
+    #eval-bar-wrap {
+      height: 18px;
+      background: #1a1a1a;
+      border-radius: 5px;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 7px;
+      border: 1px solid var(--border);
+    }
+    #eval-bar-white {
+      height: 100%;
+      background: #e8e8e8;
+      width: 50%;
+      transition: width 0.35s ease;
+      position: absolute;
+      left: 0; top: 0;
+    }
+    #eval-bar-center {
+      position: absolute;
+      left: 50%; top: 0;
+      width: 1px; height: 100%;
+      background: var(--border);
+      opacity: 0.5;
+    }
+    #engine-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+    }
+    #engine-score {
+      font-family: monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 44px;
+    }
+    #engine-bestmove { color: var(--text); flex: 1; }
+    #engine-depth { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+    #engine-status { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
     /* Claude Chat */
     #claude-chat { display: flex; flex-direction: column; gap: 10px; flex: 1; }
     #chat-messages {
@@ -336,8 +379,31 @@
 
     <div id="move-history">—</div>
 
+    <!-- Engine -->
+    <div class="card" id="engine-card">
+      <div class="card-title">Stockfish Engine</div>
+      <div id="eval-bar-wrap">
+        <div id="eval-bar-white"></div>
+        <div id="eval-bar-center"></div>
+      </div>
+      <div id="engine-info">
+        <span id="engine-score">—</span>
+        <span id="engine-bestmove"></span>
+        <span id="engine-depth"></span>
+      </div>
+      <div id="engine-status">Engine wird geladen…</div>
+    </div>
+
     <div class="card" id="explorer-card">
-      <div class="card-title">Lichess Explorer</div>
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>Lichess Explorer</span>
+        <select id="elo-filter" onchange="fetchExplorer()" title="Mindest-ELO der Partien">
+          <option value="1600">1600+ (Alle)</option>
+          <option value="2000" selected>2000+ (Club)</option>
+          <option value="2200">2200+ (Expert)</option>
+          <option value="2500">2500+ (Elite)</option>
+        </select>
+      </div>
       <div id="stats-content" style="color:var(--muted);font-size:0.83rem">Ziehe einen Stein um Statistiken zu sehen.</div>
     </div>
 
@@ -492,6 +558,7 @@ function onCoachDrop(source, target) {
   if (!move) return 'snapback';
   updateMoveHistory();
   fetchExplorer();
+  sendToEngine(S.chess.fen());
 }
 
 function undoMove() {
@@ -499,6 +566,7 @@ function undoMove() {
   S.board.position(S.chess.fen());
   updateMoveHistory();
   fetchExplorer();
+  sendToEngine(S.chess.fen());
 }
 
 function flipCoachBoard() { S.board.flip(); }
@@ -512,6 +580,7 @@ function resetCoachBoard() {
   document.getElementById('stats-content').innerHTML =
     '<span style="color:var(--muted)">Ziehe einen Stein um Statistiken zu sehen.</span>';
   fetchExplorer();
+  sendToEngine(S.chess.fen());
 }
 
 function updateMoveHistory() {
@@ -526,14 +595,101 @@ function updateMoveHistory() {
 }
 
 // ════════════════════════════════════════════════
+//  STOCKFISH ENGINE
+// ════════════════════════════════════════════════
+let sfWorker = null;
+let sfReady = false;
+let sfEngineTimer = null;
+
+function initEngine() {
+  try {
+    sfWorker = new Worker('/stockfish.js');
+    sfWorker.onmessage = (e) => handleEngineMessage(e.data);
+    sfWorker.postMessage('uci');
+    sfWorker.postMessage('setoption name Skill Level value 20');
+    sfWorker.postMessage('isready');
+  } catch (err) {
+    const el = document.getElementById('engine-status');
+    if (el) el.textContent = 'Engine nicht verfügbar (Server starten)';
+  }
+}
+
+function handleEngineMessage(line) {
+  if (line === 'readyok') {
+    sfReady = true;
+    const el = document.getElementById('engine-status');
+    if (el) el.textContent = '';
+    sendToEngine(S.chess.fen());
+    return;
+  }
+  if (line.startsWith('info') && line.includes('score') && line.includes('depth')) {
+    const depthM = line.match(/depth (\d+)/);
+    const scoreM = line.match(/score (cp|mate) (-?\d+)/);
+    const pvM    = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+    if (!scoreM) return;
+    const depth = depthM ? parseInt(depthM[1]) : 0;
+    if (depth < 6) return;
+    const type  = scoreM[1];
+    let value   = parseInt(scoreM[2]);
+    if (S.chess.turn() === 'b') value = -value;
+    updateEngineUI(type, value, pvM ? pvM[1] : null, depth);
+  }
+}
+
+function sendToEngine(fen) {
+  if (!sfWorker || !sfReady) return;
+  clearTimeout(sfEngineTimer);
+  sfEngineTimer = setTimeout(() => {
+    sfWorker.postMessage('stop');
+    sfWorker.postMessage(`position fen ${fen}`);
+    sfWorker.postMessage('go movetime 1500');
+  }, 200);
+}
+
+function updateEngineUI(type, value, bestMoveUci, depth) {
+  const scoreEl = document.getElementById('engine-score');
+  const bmEl    = document.getElementById('engine-bestmove');
+  const depthEl = document.getElementById('engine-depth');
+  const barEl   = document.getElementById('eval-bar-white');
+  if (!scoreEl) return;
+
+  let scoreText, barPct;
+  if (type === 'mate') {
+    scoreText = value > 0 ? `M${value}` : `-M${Math.abs(value)}`;
+    barPct = value > 0 ? 94 : 6;
+  } else {
+    const pawns = value / 100;
+    scoreText = (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
+    // Sigmoid-Mapping: ±5 Bauern → ~90%/10%
+    barPct = 50 + (50 * (2 / (1 + Math.exp(-0.4 * pawns)) - 1));
+    barPct = Math.max(5, Math.min(95, barPct));
+  }
+
+  scoreEl.textContent = scoreText;
+  depthEl.textContent = `Tiefe ${depth}`;
+  barEl.style.width = `${barPct}%`;
+
+  if (bestMoveUci) {
+    const tmp = new Chess(S.chess.fen());
+    const mv = tmp.move({
+      from: bestMoveUci.slice(0, 2),
+      to:   bestMoveUci.slice(2, 4),
+      promotion: bestMoveUci[4] || undefined
+    });
+    bmEl.textContent = mv ? `Bester Zug: ${mv.san}` : `Bester Zug: ${bestMoveUci}`;
+  }
+}
+
+// ════════════════════════════════════════════════
 //  LICHESS EXPLORER
 // ════════════════════════════════════════════════
 function fetchExplorer() {
   clearTimeout(S.explorerTimer);
   S.explorerTimer = setTimeout(async () => {
     const fen = S.chess.fen();
+    const minRating = document.getElementById('elo-filter')?.value || '2000';
     try {
-      const res = await fetch(`/api/explorer?fen=${encodeURIComponent(fen)}`);
+      const res = await fetch(`/api/explorer?fen=${encodeURIComponent(fen)}&minRating=${minRating}`);
       if (res.status === 401) {
         document.getElementById('stats-content').innerHTML =
           `<div style="color:var(--accent);font-size:0.82rem">
@@ -604,6 +760,7 @@ function explorerMove(san) {
     S.board.position(S.chess.fen());
     updateMoveHistory();
     fetchExplorer();
+    sendToEngine(S.chess.fen());
   }
 }
 
@@ -1066,6 +1223,7 @@ function stopPractice() {
 document.addEventListener('DOMContentLoaded', () => {
   switchTab('coach');
   initCoachBoard();
+  initEngine();
 });
 </script>
 </body>

@@ -30,22 +30,25 @@ app.post('/api/claude', async (req, res) => {
   }
 });
 
+// ── Stockfish.js als Web Worker bereitstellen ────────────────────────
+app.get('/stockfish.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'node_modules/stockfish.js/stockfish.js'));
+});
+
 // ── Lichess Opening Explorer Proxy ───────────────────────────────────
 app.get('/api/explorer', async (req, res) => {
   const token = process.env.LICHESS_TOKEN;
   const fen = req.query.fen;
+  const minRating = parseInt(req.query.minRating) || 1600;
   if (!fen) return res.status(400).json({ error: 'FEN fehlt' });
 
-  const params = new URLSearchParams({
-    variant: 'standard',
-    fen,
-    'speeds[]': ['blitz', 'rapid', 'classical'],
-    'ratings[]': ['1600', '1800', '2000', '2200'],
-  });
-  // speeds[] / ratings[] als repeated params
+  const allRatings = [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+  const ratings = allRatings.filter(r => r >= minRating);
+  const ratingPart = ratings.map(r => `ratings[]=${r}`).join('&');
+
   const url = `https://explorer.lichess.ovh/lichess?variant=standard` +
     `&speeds[]=blitz&speeds[]=rapid&speeds[]=classical` +
-    `&ratings[]=1600&ratings[]=1800&ratings[]=2000&ratings[]=2200` +
+    `&${ratingPart}` +
     `&fen=${encodeURIComponent(fen)}`;
 
   try {
