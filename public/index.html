@@ -687,18 +687,14 @@ function fetchExplorer() {
   clearTimeout(S.explorerTimer);
   S.explorerTimer = setTimeout(async () => {
     const fen = S.chess.fen();
-    const minRating = document.getElementById('elo-filter')?.value || '2000';
+    const minRating = parseInt(document.getElementById('elo-filter')?.value || '2000');
+    const allRatings = [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+    const ratingPart = allRatings.filter(r => r >= minRating).map(r => `ratings[]=${r}`).join('&');
+    const url = `https://explorer.lichess.ovh/lichess?variant=standard` +
+      `&speeds[]=blitz&speeds[]=rapid&speeds[]=classical` +
+      `&${ratingPart}&fen=${encodeURIComponent(fen)}`;
     try {
-      const res = await fetch(`/api/explorer?fen=${encodeURIComponent(fen)}&minRating=${minRating}`);
-      if (res.status === 401) {
-        document.getElementById('stats-content').innerHTML =
-          `<div style="color:var(--accent);font-size:0.82rem">
-            <strong>Lichess API Token erforderlich.</strong><br>
-            Erstelle einen kostenlosen Token auf <a href="https://lichess.org/account/oauth/token" target="_blank" style="color:var(--accent)">lichess.org/account/oauth/token</a>
-            und trage ihn als Umgebungsvariable <code style="background:var(--card2);padding:2px 6px;border-radius:3px">LICHESS_TOKEN</code> ein.
-          </div>`;
-        return;
-      }
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (!res.ok) return;
       const data = await res.json();
       if (data.opening) {
@@ -706,7 +702,7 @@ function fetchExplorer() {
         document.getElementById('opening-name').textContent = data.opening.name || 'Unbekannte Eröffnung';
       }
       renderExplorer(data);
-    } catch { /* Server nicht erreichbar */ }
+    } catch { /* API nicht erreichbar */ }
   }, 380);
 }
 
