@@ -1,13 +1,20 @@
 export const handler = async (event) => {
   const fen = event.queryStringParameters?.fen;
+  const minRating = parseInt(event.queryStringParameters?.minRating) || 2000;
+
   if (!fen) {
     return { statusCode: 400, body: JSON.stringify({ error: 'FEN fehlt' }) };
   }
 
   const token = process.env.LICHESS_TOKEN;
+
+  const allRatings = [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+  const ratings = allRatings.filter(r => r >= minRating);
+  const ratingPart = ratings.map(r => `ratings[]=${r}`).join('&');
+
   const url = `https://explorer.lichess.ovh/lichess?variant=standard` +
     `&speeds[]=blitz&speeds[]=rapid&speeds[]=classical` +
-    `&ratings[]=1600&ratings[]=1800&ratings[]=2000&ratings[]=2200` +
+    `&${ratingPart}` +
     `&fen=${encodeURIComponent(fen)}`;
 
   try {
