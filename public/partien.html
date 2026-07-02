@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>♟ Partien-Verwaltung</title>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="chat-shared.js"></script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #1a1a2e;
+    --card:       #16213e;
+    --card2:      #0f3460;
+    --accent:     #e2b96f;
+    --accent2:    #c9a847;
+    --text:       #e8e8e8;
+    --muted:      #8a9abf;
+    --border:     #2a3a5e;
+    --green:      #4caf50;
+    --red:        #ef5350;
+  }
+
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* LOGIN */
+  #loginScreen { position: fixed; inset: 0; background: var(--bg); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+  .login-box { background: var(--card); border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: 12px; padding: 36px 32px; text-align: center; max-width: 340px; width: 100%; }
+  .login-box h2 { color: var(--accent); margin-bottom: 20px; font-size: 1.15rem; }
+  .login-box input { width: 100%; margin-bottom: 12px; }
+  #pwErr { color: var(--red); font-size: 0.82rem; min-height: 18px; margin-top: 4px; }
+
+  input[type="text"], input[type="password"], input[type="date"], input[type="number"], select, textarea {
+    background: var(--card2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 12px; border-radius: 6px; font-size: 0.88rem; outline: none; transition: border 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+
+  .btn { padding: 7px 14px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 0.83rem; transition: all 0.18s; white-space: nowrap; }
+  .btn:hover { background: var(--accent); color: #111; border-color: var(--accent); }
+  .btn-primary { background: var(--accent); color: #111; font-weight: 700; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent2); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .card-title { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+
+  #header { background: var(--card); border-bottom: 2px solid var(--accent); padding: 12px 24px; display: flex; align-items: center; gap: 20px; }
+  #header h1 { font-size: 1.2rem; color: var(--accent); font-weight: 700; }
+  #header a { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+  #header a:hover { color: var(--text); }
+
+  #app { display: none; padding: 20px 24px; max-width: 1200px; margin: 0 auto; }
+
+  /* LISTE */
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .filter-bar input, .filter-bar select { font-size: 0.82rem; padding: 6px 10px; }
+  #upload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  #upload-status { font-size: 0.82rem; color: var(--muted); }
+
+  table.partien-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  table.partien-table th { text-align: left; padding: 7px 10px; color: var(--muted); font-weight: 400; border-bottom: 2px solid var(--border); }
+  table.partien-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  table.partien-table tr:hover td { background: var(--card2); cursor: pointer; }
+  .badge { font-size: 0.68rem; padding: 2px 7px; border-radius: 9px; font-weight: 600; }
+  .badge.auto { background: #3a2e1a; color: var(--accent); }
+  .badge.korrigiert { background: #1a3a2a; color: var(--green); }
+  .badge.manuell { background: var(--card2); color: var(--muted); }
+
+  /* DETAIL */
+  #detail-view { display: none; grid-template-columns: 420px 1fr; gap: 20px; }
+  #detail-view.active { display: grid; }
+  .board-col { display: flex; flex-direction: column; gap: 10px; }
+  #partien-board { width: 400px; }
+  .board-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .info-col { display: flex; flex-direction: column; gap: 14px; }
+
+  #partien-move-history { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-height: 40px; max-height: 90px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.82rem; color: var(--muted); line-height: 1.8; }
+  #partien-move-history span.active-move { color: var(--accent); font-weight: 700; }
+
+  #partien-engine-card { padding: 12px 14px; }
+  #partien-eval-bar-wrap { height: 18px; background: #1a1a1a; border-radius: 5px; overflow: hidden; position: relative; margin-bottom: 7px; border: 1px solid var(--border); }
+  #partien-eval-bar-white { height: 100%; background: #e8e8e8; width: 50%; transition: width 0.35s ease; position: absolute; left: 0; top: 0; }
+  #partien-engine-info { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; }
+  #partien-engine-score { font-family: monospace; font-size: 1rem; font-weight: 700; color: var(--accent); min-width: 44px; }
+  #partien-engine-bestmove { color: var(--text); flex: 1; }
+  #partien-engine-depth { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  #partien-engine-status { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
+  .theorie-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+  .theorie-badge.ja { background: #1a3a2a; color: var(--green); }
+  .theorie-badge.nein { background: #3a1a1a; color: var(--red); }
+
+  #chat-messages-p { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .chat-msg { padding: 9px 12px; border-radius: 7px; font-size: 0.87rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .chat-msg.user { background: var(--card2); border-left: 3px solid var(--accent); }
+  .chat-msg.assistant { background: #0d1a2e; border-left: 3px solid var(--green); }
+  .chat-msg.loading { color: var(--muted); font-style: italic; }
+  .chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
+  #partien-chat-input { flex: 1; }
+
+  /* KORREKTUR-FORMULAR */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 13px; }
+  .fg { display: flex; flex-direction: column; gap: 3px; }
+  .fg.full { grid-column: 1 / -1; }
+  .fg label { font-size: 0.72rem; color: var(--muted); }
+  .unsicher-hint { background: #3a2e1a; border: 1px solid var(--accent); border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; color: var(--accent); margin-bottom: 10px; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <h2>♟ Partien-Verwaltung — Login</h2>
+    <input type="password" id="pwInput" placeholder="Passwort" onkeydown="if(event.key==='Enter') checkPw()">
+    <button class="btn btn-primary" style="width:100%" onclick="checkPw()">Anmelden</button>
+    <div id="pwErr"></div>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="header">
+  <h1>♟ Partien-Verwaltung</h1>
+  <a href="index.html">← Zurück zu Opening Coach / Scouting</a>
+</div>
+
+<div id="app">
+
+  <!-- LISTE -->
+  <div id="list-view">
+    <div id="upload-row">
+      <label class="btn btn-primary" for="foto-input">📷 Partieformular hochladen</label>
+      <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onFotoSelected(event)">
+      <span id="upload-status"></span>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" id="f-verein" placeholder="Verein (Weiß/Schwarz)" oninput="debounceLoadPartien()">
+      <input type="text" id="f-gegner" placeholder="Spieler (Weiß/Schwarz)" oninput="debounceLoadPartien()">
+      <input type="text" id="f-veranstaltung" placeholder="Veranstaltung" oninput="debounceLoadPartien()">
+      <input type="number" id="f-brett" placeholder="Brett" style="width:80px" oninput="debounceLoadPartien()">
+      <input type="date" id="f-von" onchange="loadPartien()">
+      <input type="date" id="f-bis" onchange="loadPartien()">
+      <button class="btn" onclick="resetFilters()">✕ Filter zurücksetzen</button>
+    </div>
+
+    <div class="card">
+      <div id="partien-table-container">
+        <p style="color:var(--muted)">Lade Partien…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETAIL -->
+  <div id="detail-view">
+    <div class="board-col">
+      <button class="btn" onclick="closeDetail()">← Zur Liste</button>
+      <div id="partien-board"></div>
+      <div class="board-controls">
+        <button class="btn" onclick="gotoPly(0)">⏮ Start</button>
+        <button class="btn" onclick="prevPly()">← Zurück</button>
+        <button class="btn" onclick="nextPly()">Vor →</button>
+        <button class="btn" onclick="gotoPly(P.plyFens.length - 1)">Ende ⏭</button>
+        <button class="btn" onclick="flipPartienBoard()">⟳ Drehen</button>
+      </div>
+      <div id="partien-move-history">—</div>
+      <button class="btn" onclick="toggleKorrektur()">✎ Kopfdaten / Züge korrigieren</button>
+    </div>
+
+    <div class="info-col">
+      <div class="card" id="partien-kopf-card">
+        <div class="card-title">Partie</div>
+        <div id="partien-kopf-anzeige" style="font-size:0.88rem;line-height:1.6"></div>
+      </div>
+
+      <div class="card hidden" id="korrektur-card">
+        <div class="card-title">Korrektur</div>
+        <div class="form-grid">
+          <div class="fg"><label>Datum</label><input type="date" id="k-datum"></div>
+          <div class="fg"><label>Veranstaltung</label><input type="text" id="k-veranstaltung"></div>
+          <div class="fg"><label>Brett</label><input type="number" id="k-brett"></div>
+          <div class="fg"><label>Ergebnis</label>
+            <select id="k-ergebnis"><option value="">—</option><option value="1-0">1-0</option><option value="0-1">0-1</option><option value="1/2-1/2">1/2-1/2</option><option value="*">*</option></select>
+          </div>
+          <div class="fg"><label>Verein Weiß</label><input type="text" id="k-verein-weiss"></div>
+          <div class="fg"><label>Verein Schwarz</label><input type="text" id="k-verein-schwarz"></div>
+          <div class="fg"><label>Spieler Weiß</label><input type="text" id="k-spieler-weiss"></div>
+          <div class="fg"><label>Spieler Schwarz</label><input type="text" id="k-spieler-schwarz"></div>
+          <div class="fg"><label>Elo Weiß</label><input type="number" id="k-elo-weiss"></div>
+          <div class="fg"><label>Elo Schwarz</label><input type="number" id="k-elo-schwarz"></div>
+          <div class="fg full"><label>Züge (PGN-Kurzform, z.B. "1. e4 e5 2. Nf3 Nc6")</label><textarea id="k-zuege-text" rows="4"></textarea></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="saveKorrektur()">Speichern</button>
+          <button class="btn" onclick="toggleKorrektur()">Abbrechen</button>
+        </div>
+      </div>
+
+      <div class="card" id="partien-engine-card">
+        <div class="card-title">Stockfish Engine</div>
+        <div id="partien-eval-bar-wrap">
+          <div id="partien-eval-bar-white"></div>
+        </div>
+        <div id="partien-engine-info">
+          <span id="partien-engine-score">—</span>
+          <span id="partien-engine-bestmove"></span>
+          <span id="partien-engine-depth"></span>
+        </div>
+        <div id="partien-engine-status">Engine wird geladen…</div>
+      </div>
+
+      <div class="card" id="partien-explorer-card">
+        <div class="card-title">Eröffnungsabgleich (Lichess Explorer)</div>
+        <div id="partien-explorer-content" style="color:var(--muted);font-size:0.83rem">—</div>
+      </div>
+
+      <div class="card" id="partien-chat">
+        <div class="card-title">Coach (Claude Opus)</div>
+        <div id="chat-messages-p"></div>
+        <div class="chat-input-row">
+          <input type="text" id="partien-chat-input" placeholder="Frage zur aktuellen Stellung..." onkeydown="if(event.key==='Enter') sendPartienChat()">
+          <button class="btn btn-primary" onclick="sendPartienChat()">Senden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+//  KONFIGURATION — nach Anlage des Supabase-Projekts "chess-coach-partien" ausfüllen
+// ════════════════════════════════════════════════
+const SUPABASE_URL = 'https://xuuitgtnnphcwjzkaihc.supabase.co';   // DMS-Projekt (Partien-Verwaltung lebt hier mit)
+const SUPABASE_KEY = 'sb_publishable_vsjNTeDJyzd3gfnftA54DA_42jNTFb4';
+const AUTH_EMAIL   = 'TODO@example.com';                            // TODO: Login-E-Mail für Supabase Auth (Passwort NIE hier eintragen)
+const OCR_URL = `${SUPABASE_URL}/functions/v1/ocr-partie`;
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ════════════════════════════════════════════════
+//  PIECE THEME (identisch zu index.html)
+// ════════════════════════════════════════════════
+const PIECE_CACHE = {};
+function pieceTheme(piece) {
+  if (PIECE_CACHE[piece]) return PIECE_CACHE[piece];
+  const syms = { wK:'♔', wQ:'♕', wR:'♖', wB:'♗', wN:'♘', wP:'♙', bK:'♚', bQ:'♛', bR:'♜', bB:'♝', bN:'♞', bP:'♟' };
+  const isWhite = piece[0] === 'w';
+  const sz = 72;
+  const c = document.createElement('canvas');
+  c.width = sz; c.height = sz;
+  const ctx = c.getContext('2d');
+  ctx.font = `${sz - 10}px "Segoe UI Symbol", "Apple Color Emoji", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = isWhite ? '#2a2a2a' : '#e0e0e0';
+  ctx.lineWidth = 4;
+  ctx.strokeText(syms[piece], sz / 2, sz / 2 + 2);
+  ctx.fillStyle = isWhite ? '#f0f0f0' : '#1a1a1a';
+  ctx.fillText(syms[piece], sz / 2, sz / 2 + 2);
+  PIECE_CACHE[piece] = c.toDataURL();
+  return PIECE_CACHE[piece];
+}
+
+// ════════════════════════════════════════════════
+//  AUTH
+// ════════════════════════════════════════════════
+async function checkPw() {
+  const { error } = await db.auth.signInWithPassword({ email: AUTH_EMAIL, password: document.getElementById('pwInput').value });
+  if (!error) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
+  } else {
+    document.getElementById('pwErr').textContent = 'Falsches Passwort.';
+  }
+}
+
+db.auth.getSession().then(({ data: { session } }) => {
+  if (session) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
+  }
+});
+
+function initApp() {
+  loadPartien();
+}
+
+// ════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════
+const P = {
+  chess: new Chess(),
+  board: null,
+  chatHistory: [],
+  currentPartie: null,
+  plyFens: [],       // FEN nach jedem Halbzug, plyFens[0] = Grundstellung
+  plySans: [],        // SAN-Notation jedes Halbzugs
+  currentPly: 0,
+  filterTimer: null
+};
+
+// ════════════════════════════════════════════════
+//  LISTE / FILTER
+// ════════════════════════════════════════════════
+function debounceLoadPartien() {
+  clearTimeout(P.filterTimer);
+  P.filterTimer = setTimeout(loadPartien, 350);
+}
+
+function resetFilters() {
+  document.getElementById('f-verein').value = '';
+  document.getElementById('f-gegner').value = '';
+  document.getElementById('f-veranstaltung').value = '';
+  document.getElementById('f-brett').value = '';
+  document.getElementById('f-von').value = '';
+  document.getElementById('f-bis').value = '';
+  loadPartien();
+}
+
+async function loadPartien() {
+  const verein = document.getElementById('f-verein').value.trim();
+  const gegner = document.getElementById('f-gegner').value.trim();
+  const veranstaltung = document.getElementById('f-veranstaltung').value.trim();
+  const brett = document.getElementById('f-brett').value.trim();
+  const von = document.getElementById('f-von').value;
+  const bis = document.getElementById('f-bis').value;
+
+  let q = db.from('partien').select('*').order('datum', { ascending: false });
+
+  if (verein) q = q.or(`verein_weiss.ilike.%${verein}%,verein_schwarz.ilike.%${verein}%`);
+  if (gegner) q = q.or(`spieler_weiss.ilike.%${gegner}%,spieler_schwarz.ilike.%${gegner}%`);
+  if (veranstaltung) q = q.ilike('veranstaltung', `%${veranstaltung}%`);
+  if (brett) q = q.eq('brett', parseInt(brett));
+  if (von) q = q.gte('datum', von);
+  if (bis) q = q.lte('datum', bis);
+
+  const container = document.getElementById('partien-table-container');
+  const { data, error } = await q;
+  if (error) {
+    container.innerHTML = `<p style="color:var(--red)">Fehler beim Laden: ${error.message}</p>`;
+    return;
+  }
+  renderPartienTable(data || []);
+}
+
+function renderPartienTable(rows) {
+  const container = document.getElementById('partien-table-container');
+  if (!rows.length) {
+    container.innerHTML = '<p style="color:var(--muted)">Keine Partien gefunden.</p>';
+    return;
+  }
+  let html = `<table class="partien-table"><thead><tr>
+    <th>Datum</th><th>Weiß</th><th>Schwarz</th><th>Verein W/S</th><th>Veranstaltung</th><th>Brett</th><th>Ergebnis</th><th>Status</th>
+  </tr></thead><tbody>`;
+  rows.forEach(r => {
+    html += `<tr onclick="openDetail('${r.id}')">
+      <td>${r.datum || '—'}</td>
+      <td>${esc(r.spieler_weiss) || '—'}</td>
+      <td>${esc(r.spieler_schwarz) || '—'}</td>
+      <td>${esc(r.verein_weiss) || '—'} / ${esc(r.verein_schwarz) || '—'}</td>
+      <td>${esc(r.veranstaltung) || '—'}</td>
+      <td>${r.brett ?? '—'}</td>
+      <td>${esc(r.ergebnis) || '—'}</td>
+      <td><span class="badge ${r.ocr_status}">${r.ocr_status}</span></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// ════════════════════════════════════════════════
+//  FOTO-UPLOAD → OCR-EDGE-FUNCTION
+// ════════════════════════════════════════════════
+function dateiZuBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function onFotoSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('upload-status');
+  statusEl.textContent = 'Lese Partieformular (Pixtral OCR)…';
+
+  try {
+    const base64 = await dateiZuBase64(file);
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(OCR_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64, mimeType: file.type, filename: file.name, quelle: 'foto' })
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`); }
+    const result = await res.json();
+
+    statusEl.textContent = '';
+    event.target.value = '';
+    await loadPartien();
+    if (result.partie?.id) {
+      openDetail(result.partie.id);
+      if (result.unsichere_felder?.length) {
+        alert('Achtung, unsichere Felder bei der OCR-Erkennung:\n' + result.unsichere_felder.join(', ') + '\n\nBitte in der Detail-Ansicht kontrollieren und ggf. korrigieren.');
+      }
+    }
+  } catch (e) {
+    statusEl.textContent = '';
+    alert('Fehler beim Auslesen: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════════════════
+//  DETAIL-ANSICHT
+// ════════════════════════════════════════════════
+async function openDetail(id) {
+  const { data, error } = await db.from('partien').select('*').eq('id', id).single();
+  if (error) { alert('Fehler beim Laden der Partie: ' + error.message); return; }
+  P.currentPartie = data;
+  P.chatHistory = [];
+  document.getElementById('chat-messages-p').innerHTML = '';
+
+  buildPlyList(data.zuege || []);
+  document.getElementById('list-view').style.display = 'none';
+  document.getElementById('detail-view').classList.add('active');
+  document.getElementById('korrektur-card').classList.add('hidden');
+
+  renderKopfAnzeige(data);
+  fillKorrekturForm(data);
+
+  if (!P.board) {
+    P.board = Chessboard('partien-board', { draggable: false, position: 'start', pieceTheme: pieceTheme });
+  }
+  gotoPly(P.plyFens.length - 1);
+
+  if (!sfWorkerP) initEngineP();
+}
+
+function closeDetail() {
+  document.getElementById('detail-view').classList.remove('active');
+  document.getElementById('list-view').style.display = 'block';
+}
+
+function buildPlyList(zuege) {
+  const chess = new Chess();
+  const fens = [chess.fen()];
+  const sans = [null];
+  (zuege || []).forEach(z => {
+    if (z.weiss) { const m = chess.move(z.weiss); if (m) { fens.push(chess.fen()); sans.push(m.san); } }
+    if (z.schwarz) { const m = chess.move(z.schwarz); if (m) { fens.push(chess.fen()); sans.push(m.san); } }
+  });
+  P.plyFens = fens;
+  P.plySans = sans;
+  P.currentPly = fens.length - 1;
+}
+
+function renderKopfAnzeige(d) {
+  document.getElementById('partien-kopf-anzeige').innerHTML = `
+    <strong>${esc(d.spieler_weiss) || '?'}</strong> (${esc(d.verein_weiss) || '—'}${d.elo_weiss ? ', ' + d.elo_weiss : ''})
+    &nbsp;vs&nbsp;
+    <strong>${esc(d.spieler_schwarz) || '?'}</strong> (${esc(d.verein_schwarz) || '—'}${d.elo_schwarz ? ', ' + d.elo_schwarz : ''})<br>
+    ${esc(d.veranstaltung) || '—'} · Brett ${d.brett ?? '—'} · ${d.datum || '—'} · Ergebnis: <strong>${esc(d.ergebnis) || '*'}</strong>
+    <br><span class="badge ${d.ocr_status}" style="margin-top:6px;display:inline-block">${d.ocr_status}</span>
+  `;
+}
+
+function gotoPly(i) {
+  if (i < 0 || i >= P.plyFens.length) return;
+  P.currentPly = i;
+  P.chess.load(P.plyFens[i]);
+  P.board.position(P.plyFens[i]);
+  renderMoveHistoryP();
+  sendToEngineP(P.plyFens[i]);
+  fetchExplorerP(P.plyFens[i]);
+}
+
+function nextPly() { gotoPly(P.currentPly + 1); }
+function prevPly() { gotoPly(P.currentPly - 1); }
+function flipPartienBoard() { P.board.flip(); }
+
+function renderMoveHistoryP() {
+  let html = '';
+  for (let i = 1; i < P.plySans.length; i++) {
+    const moveNo = Math.ceil(i / 2);
+    if (i % 2 === 1) html += `<span style="color:var(--muted)">${moveNo}. </span>`;
+    const active = i === P.currentPly ? ' active-move' : '';
+    html += `<span class="${active}" style="margin-right:6px;cursor:pointer" onclick="gotoPly(${i})">${P.plySans[i]}</span>`;
+  }
+  document.getElementById('partien-move-history').innerHTML = html || '—';
+}
+
+// ════════════════════════════════════════════════
+//  STOCKFISH ENGINE (eigene Instanz, eigene DOM-IDs)
+// ════════════════════════════════════════════════
+let sfWorkerP = null;
+let sfReadyP = false;
+let sfEngineTimerP = null;
+
+function initEngineP() {
+  try {
+    sfWorkerP = new Worker('/stockfish.js');
+    sfWorkerP.onmessage = (e) => handleEngineMessageP(e.data);
+    sfWorkerP.postMessage('uci');
+    sfWorkerP.postMessage('setoption name Skill Level value 20');
+    sfWorkerP.postMessage('isready');
+  } catch (err) {
+    const el = document.getElementById('partien-engine-status');
+    if (el) el.textContent = 'Engine nicht verfügbar';
+  }
+}
+
+function handleEngineMessageP(line) {
+  if (line === 'readyok') {
+    sfReadyP = true;
+    const el = document.getElementById('partien-engine-status');
+    if (el) el.textContent = '';
+    sendToEngineP(P.plyFens[P.currentPly]);
+    return;
+  }
+  if (line.startsWith('info') && line.includes('score') && line.includes('depth')) {
+    const depthM = line.match(/depth (\d+)/);
+    const scoreM = line.match(/score (cp|mate) (-?\d+)/);
+    const pvM    = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+    if (!scoreM) return;
+    const depth = depthM ? parseInt(depthM[1]) : 0;
+    if (depth < 6) return;
+    const type = scoreM[1];
+    let value  = parseInt(scoreM[2]);
+    if (P.chess.turn() === 'b') value = -value;
+    updateEngineUIP(type, value, pvM ? pvM[1] : null, depth);
+  }
+}
+
+function sendToEngineP(fen) {
+  if (!sfWorkerP || !sfReadyP || !fen) return;
+  clearTimeout(sfEngineTimerP);
+  sfEngineTimerP = setTimeout(() => {
+    sfWorkerP.postMessage('stop');
+    sfWorkerP.postMessage(`position fen ${fen}`);
+    sfWorkerP.postMessage('go movetime 1500');
+  }, 200);
+}
+
+function updateEngineUIP(type, value, bestMoveUci, depth) {
+  const scoreEl = document.getElementById('partien-engine-score');
+  const bmEl    = document.getElementById('partien-engine-bestmove');
+  const depthEl = document.getElementById('partien-engine-depth');
+  const barEl   = document.getElementById('partien-eval-bar-white');
+  if (!scoreEl) return;
+
+  let scoreText, barPct;
+  if (type === 'mate') {
+    scoreText = value > 0 ? `M${value}` : `-M${Math.abs(value)}`;
+    barPct = value > 0 ? 94 : 6;
+  } else {
+    const pawns = value / 100;
+    scoreText = (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
+    barPct = 50 + (50 * (2 / (1 + Math.exp(-0.4 * pawns)) - 1));
+    barPct = Math.max(5, Math.min(95, barPct));
+  }
+  scoreEl.textContent = scoreText;
+  depthEl.textContent = `Tiefe ${depth}`;
+  barEl.style.width = `${barPct}%`;
+
+  if (bestMoveUci) {
+    const tmp = new Chess(P.chess.fen());
+    const mv = tmp.move({ from: bestMoveUci.slice(0, 2), to: bestMoveUci.slice(2, 4), promotion: bestMoveUci[4] || undefined });
+    bmEl.textContent = mv ? `Bester Zug: ${mv.san}` : `Bester Zug: ${bestMoveUci}`;
+  }
+}
+
+// ════════════════════════════════════════════════
+//  LICHESS EXPLORER — Theorieabgleich pro Stellung
+// ════════════════════════════════════════════════
+async function fetchExplorerP(fen) {
+  if (!fen) return;
+  const el = document.getElementById('partien-explorer-content');
+  try {
+    const res = await fetch(`/api/explorer?fen=${encodeURIComponent(fen)}&minRating=2000`);
+    if (!res.ok) { el.innerHTML = '<span style="color:var(--muted)">Explorer nicht erreichbar.</span>'; return; }
+    const data = await res.json();
+    const total = (data.white || 0) + (data.draws || 0) + (data.black || 0);
+    const nextSan = P.plySans[P.currentPly + 1];
+    const istTheorie = nextSan && (data.moves || []).some(m => m.san === nextSan);
+
+    let html = '';
+    if (data.opening) html += `<strong>${esc(data.opening.eco || '')} ${esc(data.opening.name || '')}</strong><br>`;
+    html += `${fmt(total)} Partien in dieser Stellung (Elo 2000+).<br>`;
+    if (nextSan) {
+      html += `Nächster gespielter Zug <strong>${esc(nextSan)}</strong>: `;
+      html += `<span class="theorie-badge ${istTheorie ? 'ja' : 'nein'}">${istTheorie ? 'Theoriezug' : 'kein Theoriezug'}</span>`;
+    }
+    el.innerHTML = html;
+  } catch {
+    el.innerHTML = '<span style="color:var(--muted)">Explorer nicht erreichbar.</span>';
+  }
+}
+
+function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
+
+// ════════════════════════════════════════════════
+//  CLAUDE CHAT (wiederverwendet aus chat-shared.js)
+// ════════════════════════════════════════════════
+function addMsgP(role, text, loading = false) {
+  const el = document.createElement('div');
+  el.className = `chat-msg ${role}${loading ? ' loading' : ''}`;
+  el.textContent = text;
+  const msgs = document.getElementById('chat-messages-p');
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+
+function buildPartieKontext() {
+  const d = P.currentPartie;
+  if (!d) return '';
+  return `KONTEXT DIESER PARTIE (aus der Partien-Datenbank):
+${esc(d.spieler_weiss) || '?'} (${esc(d.verein_weiss) || '—'}) vs ${esc(d.spieler_schwarz) || '?'} (${esc(d.verein_schwarz) || '—'})
+Veranstaltung: ${esc(d.veranstaltung) || '—'}, Brett ${d.brett ?? '—'}, Datum ${d.datum || '—'}, Ergebnis ${esc(d.ergebnis) || '*'}
+Der Nutzer schaut sich Halbzug ${P.currentPly} von ${P.plyFens.length - 1} dieser Partie an.`;
+}
+
+async function sendPartienChat() {
+  const inp = document.getElementById('partien-chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  try {
+    await ChessCoachChat.send({
+      text,
+      chess: P.chess,
+      chatHistory: P.chatHistory,
+      extraContext: buildPartieKontext(),
+      addMsgFn: addMsgP
+    });
+  } catch (e) { /* Fehler wurde bereits im Chat-Fenster angezeigt */ }
+}
+
+// ════════════════════════════════════════════════
+//  KORREKTUR-FORMULAR
+// ════════════════════════════════════════════════
+function toggleKorrektur() {
+  document.getElementById('korrektur-card').classList.toggle('hidden');
+}
+
+function fillKorrekturForm(d) {
+  document.getElementById('k-datum').value = d.datum || '';
+  document.getElementById('k-veranstaltung').value = d.veranstaltung || '';
+  document.getElementById('k-brett').value = d.brett ?? '';
+  document.getElementById('k-ergebnis').value = d.ergebnis || '';
+  document.getElementById('k-verein-weiss').value = d.verein_weiss || '';
+  document.getElementById('k-verein-schwarz').value = d.verein_schwarz || '';
+  document.getElementById('k-spieler-weiss').value = d.spieler_weiss || '';
+  document.getElementById('k-spieler-schwarz').value = d.spieler_schwarz || '';
+  document.getElementById('k-elo-weiss').value = d.elo_weiss ?? '';
+  document.getElementById('k-elo-schwarz').value = d.elo_schwarz ?? '';
+  document.getElementById('k-zuege-text').value = zuegeZuPgnKurzform(d.zuege || []);
+}
+
+function zuegeZuPgnKurzform(zuege) {
+  return zuege.map(z => `${z.nr}. ${z.weiss || ''}${z.schwarz ? ' ' + z.schwarz : ''}`).join(' ');
+}
+
+function pgnKurzformZuZuege(text) {
+  const chess = new Chess();
+  const tokens = text.trim().split(/\s+/).filter(t => t && !/^\d+\.+$/.test(t));
+  const zuege = [];
+  let nr = 1, weiss = null;
+  tokens.forEach(san => {
+    const m = chess.move(san);
+    if (!m) return;
+    if (m.color === 'w') { weiss = m.san; }
+    else { zuege.push({ nr, weiss, schwarz: m.san }); nr++; weiss = null; }
+  });
+  if (weiss) zuege.push({ nr, weiss, schwarz: null });
+  return zuege;
+}
+
+async function saveKorrektur() {
+  const zuege = pgnKurzformZuZuege(document.getElementById('k-zuege-text').value);
+  const update = {
+    datum: document.getElementById('k-datum').value || null,
+    veranstaltung: document.getElementById('k-veranstaltung').value,
+    brett: parseInt(document.getElementById('k-brett').value) || null,
+    ergebnis: document.getElementById('k-ergebnis').value,
+    verein_weiss: document.getElementById('k-verein-weiss').value,
+    verein_schwarz: document.getElementById('k-verein-schwarz').value,
+    spieler_weiss: document.getElementById('k-spieler-weiss').value,
+    spieler_schwarz: document.getElementById('k-spieler-schwarz').value,
+    elo_weiss: parseInt(document.getElementById('k-elo-weiss').value) || null,
+    elo_schwarz: parseInt(document.getElementById('k-elo-schwarz').value) || null,
+    zuege,
+    ocr_status: 'korrigiert'
+  };
+  const { data, error } = await db.from('partien').update(update).eq('id', P.currentPartie.id).select().single();
+  if (error) { alert('Fehler beim Speichern: ' + error.message); return; }
+  P.currentPartie = data;
+  buildPlyList(data.zuege || []);
+  renderKopfAnzeige(data);
+  toggleKorrektur();
+  gotoPly(P.plyFens.length - 1);
+  loadPartien();
+}
+</script>
+</body>
+</html>
